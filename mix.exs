@@ -6,7 +6,7 @@ defmodule Brc.MixProject do
       app: :brc,
       escript: [main_module: Brc],
       version: "0.1.0",
-      elixir: "~> 1.16",
+      elixir: "~> 1.15",
       start_permanent: Mix.env() == :prod,
       deps: deps()
     ]
