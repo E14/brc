@@ -25,4 +25,5 @@ brc-*.tar
 # Temporary files, for example, from tests.
 /tmp/
 
-measurements.txt
+# Ignore generated 1brc data... seriously.
+/_gen/

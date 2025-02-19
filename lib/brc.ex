@@ -50,9 +50,14 @@ defmodule Brc do
 
         index = :ets.update_counter(:brc, _key = :index, _increment_by = 1)
 
-        Agent.cast(:ets.lookup_element(:workers, rem(index, @pool_size), 2), Brc, :process_lines, [
-          buffer
-        ])
+        Agent.cast(
+          :ets.lookup_element(:workers, rem(index, @pool_size), 2),
+          Brc,
+          :process_lines,
+          [
+            buffer
+          ]
+        )
 
         process_file(file, worker_pool)
     end
@@ -61,24 +66,19 @@ defmodule Brc do
   def run_file_buf(filename) do
     :ets.new(:brc, [:public, :named_table])
     :ets.insert(:brc, {:index, -1})
-
     :ets.new(:workers, [:set, :public, :named_table])
 
-   worker_pool =
-     Enum.map(1..@pool_size, fn _ ->
-       Agent.start_link(fn -> %{} end) |> elem(1)
-     end)
+    worker_pool = Enum.map(1..@pool_size, fn _ -> Agent.start_link(fn -> %{} end) |> elem(1) end)
 
-  Enum.each(Enum.zip(0..@pool_size - 1, worker_pool), fn w ->
-    :ets.insert(:workers, w)
-  end)
+    Enum.each(Enum.zip(0..(@pool_size - 1), worker_pool), fn w -> :ets.insert(:workers, w) end)
 
     {:ok, file} = :prim_file.open(filename, [:binary, :read])
 
     process_file(file, worker_pool)
 
     # synchronous here to make sure all of the workers are finished
-    pool_maps = Enum.map(worker_pool, fn pid -> Agent.get(pid, fn state -> state end, :infinity) end)
+    pool_maps =
+      Enum.map(worker_pool, fn pid -> Agent.get(pid, fn state -> state end, :infinity) end)
 
     # feeding all other maps into one, first one is the chosen one
     [head | tail] = pool_maps
@@ -110,6 +110,7 @@ defmodule Brc do
 
   def main(args) do
     IO.puts("Using prim_file")
+
     {uSec, :ok} =
       :timer.tc(fn ->
         run_file_buf(Enum.at(args, 0))
