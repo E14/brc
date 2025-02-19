@@ -2,15 +2,12 @@ defmodule BrcStream do
   use Agent
 
   @pool_size 32
-  @job_size  10_000
-
-
+  @job_size 10_000
 
   # each process has its own partial map of the cities
   # for each line, parse out the city name and temperature * 10, keeping the numbers as integers
   # if a city is already in the map, to the min, max and counting on it
   def process_lines(state_map, lines) do
-
     Enum.reduce(lines, state_map, fn line, acc_map ->
       [city, temperature_text] = :binary.split(line, ";")
       [t1, t2] = :binary.split(temperature_text, ".")
@@ -26,12 +23,15 @@ defmodule BrcStream do
       )
     end)
   end
+
   def test_file_buf(filename) do
     file_stream = File.stream!(filename, [:read_ahead], 65_536)
     # IO.inspect(file_stream)
 
     Stream.transform(file_stream, <<>>, fn elem, acc ->
-      [new_acc | output_enum] = :binary.split(acc <> elem, <<"\n">>, [:global]) |> Enum.reverse()
+      [new_acc | output_enum] =
+        :binary.split(acc <> elem, <<"\n">>, [:global, :trim]) |> Enum.reverse()
+
       {output_enum, new_acc}
     end)
     |> Stream.chunk_every(@job_size)
@@ -39,7 +39,6 @@ defmodule BrcStream do
   end
 
   def run_file_buf(filename) do
-
     :ets.new(:brc, [:public, :named_table])
     :ets.insert(:brc, {:index, -1})
 
@@ -64,7 +63,7 @@ defmodule BrcStream do
       # this is basically using Agents as less-hassle GenServers
       Agent.cast(Enum.at(worker_pool, rem(index, @pool_size)), BrcStream, :process_lines, [job])
     end)
-    |> Stream.run
+    |> Stream.run()
 
     # synchronous here to make sure all of the workers are finished
     pool_maps = Enum.map(worker_pool, fn pid -> Agent.get(pid, fn state -> state end) end)
@@ -85,6 +84,7 @@ defmodule BrcStream do
       Map.keys(combined_map)
       |> Enum.map(fn key ->
         {min_temp, count, sum, max_temp} = Map.get(combined_map, key)
+
         {key,
          "#{key}=#{min_temp / 10}/#{:erlang.float_to_binary(sum / (count * 10), decimals: 1)}/#{max_temp / 10}"}
       end)
@@ -94,11 +94,11 @@ defmodule BrcStream do
 
     # output in brc format
     IO.puts("{#{Enum.join(sorted_strings, ", ")}}")
-
   end
 
   def main(args) do
     IO.puts("Using streams")
+
     {uSec, :ok} =
       :timer.tc(fn ->
         run_file_buf(Enum.at(args, 0))

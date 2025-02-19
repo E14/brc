@@ -3,32 +3,17 @@ defmodule Brc.Chunk do
   alias Brc.Chunk.Stats
 
   @kib 2 ** 10
-  @mib 2 ** 20
 
-  def process_file(path) do
+  def process_file(path, chunksize \\ 256 * @kib) do
     path
-    |> stream_file_concurrent([], 512 * @kib)
+    |> stream_file_concurrent([], chunksize)
     |> Enum.reduce(%{}, fn x, map -> Map.merge(map, x, &Stats.merge_stats/3) end)
     |> Stream.reject(fn {k, _} -> k == "" end)
     |> Stream.map(&Stats.format/1)
     |> Enum.sort()
   end
 
-  def process_lines(lines) do
-    lines
-    |> Brc.Enum.map([], &parse_line_binary/1)
-    |> Enum.group_by(fn {city, _} -> city end, fn {_, temp} -> temp end)
-    |> Enum.into(%{}, fn {city, temps} -> {city, Stats.stats(temps)} end)
-  end
-
-  def process_lines2(lines) do
-    lines
-    |> Brc.Enum.map([], &parse_line_binary/1)
-    |> group_by(fn {city, _} -> city end, fn {_, temp} -> temp end)
-    |> Enum.into(%{}, fn {city, temps} -> {city, Stats.stats(temps)} end)
-  end
-
-  defp stream_file_concurrent(path, modes \\ [], min_chunk_bytes \\ 2 * @mib) do
+  defp stream_file_concurrent(path, modes, min_chunk_bytes) do
     Stream.resource(
       fn -> File.open!(path, modes) end,
       fn file ->
@@ -38,8 +23,8 @@ defmodule Brc.Chunk do
 
           chunk ->
             case IO.read(file, :line) do
-              :eof -> {[chunk], file}
-              rest -> {[chunk <> rest], file}
+              :eof -> {[{chunk, "\n"}], file}
+              rest -> {[{chunk, rest}], file}
             end
         end
       end,
@@ -49,19 +34,27 @@ defmodule Brc.Chunk do
     |> Stream.map(fn {:ok, i} -> i end)
   end
 
+  defp split_lines({c, rest}),
+    do: :binary.split(c, "\n", [:global]) |> process_lines(rest)
+
+  defp process_lines(lines, rest) do
+    lines
+    |> Brc.Enum.map_suffix([], rest, &parse_line_binary/1, &combine_rest/2)
+    |> group_by(fn {city, _} -> city end, fn {_, temp} -> temp end)
+    |> Enum.into(%{}, fn {city, temps} -> {city, Stats.stats(temps)} end)
+  end
+
   defp group_by(enum, key_fn, val_fn), do: :maps.groups_from_list(key_fn, val_fn, enum)
 
-  defp split_lines(chunk), do: :binary.split(chunk, <<"\n">>, [:global]) |> process_lines2()
+  defp combine_rest("", "\n"), do: []
+  defp combine_rest(last, "\n"), do: [last]
+  defp combine_rest("", rest), do: [String.trim_trailing(rest)]
+  defp combine_rest(last, <<"\n", rest::binary>>), do: [last, String.trim_trailing(rest)]
+  defp combine_rest(last, rest), do: [String.trim_trailing(<<last::binary, rest::binary>>)]
 
   defp parse_line_binary(line) do
-    case line do
-      "" ->
-        {line, 0}
-
-      line ->
-        [city, temp_bin] = :binary.split(line, <<";">>)
-        {city, :erlang.binary_to_float(temp_bin)}
-    end
+    [city, temp_bin] = :binary.split(line, <<";">>)
+    {city, :erlang.binary_to_float(temp_bin)}
   end
 
   defp parse_line_binary2(line) do
@@ -70,7 +63,7 @@ defmodule Brc.Chunk do
         {line, 0}
 
       line ->
-        [city, temp_bin] = :binary.split(line, ";")
+        [city, temp_bin] = :binary.split(line, <<";">>)
         {city, :erlang.binary_to_float(temp_bin)}
     end
   end
