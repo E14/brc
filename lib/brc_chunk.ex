@@ -54,7 +54,7 @@ defmodule Brc.Chunk do
 
   defp parse_line_binary(line) do
     [city, temp_bin] = :binary.split(line, <<";">>)
-    {city, :erlang.binary_to_float(temp_bin)}
+    {String.to_atom(city), :erlang.binary_to_float(temp_bin)}
   end
 
   defp parse_line_binary2(line) do
