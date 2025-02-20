@@ -6,25 +6,26 @@ defmodule Brc.Chunk do
 
   def process_file(path, chunksize \\ 256 * @kib) do
     path
-    |> stream_file_concurrent([], chunksize)
+    |> stream_file_concurrent([:binary, :read, :raw], chunksize)
     |> Enum.reduce(%{}, fn x, map -> Map.merge(map, x, &Stats.merge_stats/3) end)
     |> Stream.reject(fn {k, _} -> k == "" end)
-    |> Stream.map(&Stats.format/1)
-    |> Enum.sort()
+    # |> Stream.map(&Stats.format_1brc/1)
+    |> Stream.map(&Stats.format_test/1)
+    |> Enum.sort(fn {a, _}, {b, _} -> a <= b end)
   end
 
   defp stream_file_concurrent(path, modes, min_chunk_bytes) do
     Stream.resource(
       fn -> File.open!(path, modes) end,
       fn file ->
-        case IO.read(file, min_chunk_bytes) do
+        case :file.read(file, min_chunk_bytes) do
           :eof ->
             {:halt, file}
 
-          chunk ->
-            case IO.read(file, :line) do
+          {:ok, chunk} ->
+            case :file.read_line(file) do
               :eof -> {[{chunk, "\n"}], file}
-              rest -> {[{chunk, rest}], file}
+              {:ok, rest} -> {[{chunk, rest}], file}
             end
         end
       end,
@@ -39,7 +40,7 @@ defmodule Brc.Chunk do
 
   defp process_lines(lines, rest) do
     lines
-    |> Brc.Enum.map_suffix([], rest, &parse_line_binary/1, &combine_rest/2)
+    |> Brc.Enum.map_suffix([], rest, &parse_line_binary2/1, &combine_rest/2)
     |> group_by(fn {city, _} -> city end, fn {_, temp} -> temp end)
     |> Enum.into(%{}, fn {city, temps} -> {city, Stats.stats(temps)} end)
   end
@@ -58,20 +59,27 @@ defmodule Brc.Chunk do
   end
 
   defp parse_line_binary2(line) do
-    case line do
-      "" ->
-        {line, 0}
+    [city, temp] = :binary.split(line, <<";">>)
 
-      line ->
-        [city, temp_bin] = :binary.split(line, <<";">>)
-        {city, :erlang.binary_to_float(temp_bin)}
-    end
+    {:erlang.binary_to_atom(city, :utf8),
+     :erlang.binary_to_integer(:binary.replace(temp, <<".">>, ""))}
+  end
+
+  defp parse_line_binary3(line) do
+    [city, temp_bin] = :binary.split(line, <<";">>)
+    [t, <<d::unsigned>>] = :binary.split(temp_bin, <<".">>)
+    int = :erlang.binary_to_integer(t)
+    dec = d - ?0
+    temp = if :binary.at(t, 0) == ?-, do: int * 10 - dec, else: int * 10 + dec
+    {String.to_atom(city), temp}
   end
 
   defmodule Stats do
     @neutral {Float.max_finite(), Float.min_finite(), 0, 0}
 
-    def format({k, {mn, mx, sum, cnt}}), do: "#{k};#{mn};#{Float.round(sum / cnt, 1)};#{mx}"
+    def format_test({k, {mn, mx, sum, cnt}}), do: {k, {mn / 10, sum / cnt / 10, mx / 10}}
+
+    def format_1brc({k, {mn, mx, sum, cnt}}), do: "#{k};#{mn};#{Float.round(sum / cnt, 1)};#{mx}"
 
     def stats(t), do: {:lists.min(t), :lists.max(t), :lists.sum(t), length(t)}
 

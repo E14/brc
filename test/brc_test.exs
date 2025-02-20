@@ -8,8 +8,14 @@ defmodule BrcTest do
     assert d > 1
   end
 
+  def "BrcCity implementation" do
+    {r, d} = Measure.measure(fn -> BrcCity.run_file_buf("_gen/measurements.txt") end)
+    assert d > 1
+  end
+
   test "Brc.Chunk implementation" do
-    {r, d} = Measure.measure(fn -> Brc.Chunk.process_file("_gen/measurements.txt") end)
+    chunksize = 256 * 2 ** 10
+    {r, d} = Measure.measure(fn -> Brc.Chunk.process_file("_gen/measurements.txt", chunksize) end)
     assert d == data()
   end
 
